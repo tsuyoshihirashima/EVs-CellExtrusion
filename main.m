@@ -1,3 +1,8 @@
+%% main.m
+% This program is used for a submitted manuscript Kira et al.
+% Credits: Tsuyoshi Hirashima at Kyoto University
+% hirashima.tsuyoshi.2m (at) kyoto-u.ac.jp
+
 close all
 clear
 tic
