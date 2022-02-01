@@ -1,0 +1,148 @@
+% 211102 restart
+% 211117 XMAX=420, YMAX=100, no visualization --> 48 sec
+
+close all
+clear
+tic
+
+for loop1=1:2
+    disp(['loop1: ', num2str(loop1)])
+    
+    
+    DateString = datestr(datetime('now'));
+    dir_name=['graph' DateString];
+    mkdir(dir_name);
+    
+    %% Parameter Setting
+    prm = GetParameters();
+    
+    save([dir_name, '/parameters.mat'], 'prm');
+    
+    
+    %% Initial Condition
+    sigma = GetInitialConfiguration(prm);
+    
+    %% Setting for Model Variables and Parameters
+    cells = SetInitialParameters(prm, sigma);
+    
+    %% Monte-Carlo Dynamics
+    x_vec = randi(prm.XMAX, prm.STEP_MAX, 1);
+    y_vec = randi(prm.YMAX, prm.STEP_MAX, 1);
+    nb_vec = randi(8, prm.STEP_MAX, 1); % for 2D setting
+    rnd_vec = rand(prm.STEP_MAX, 1, 'single');
+    
+    mcs_unit = prm.XMAX*prm.YMAX;
+    
+    
+    % For the output
+    mat_extrusion=[0, 0];
+    output_cnt = 2;
+    
+    for mcs = 1 : prm.MCS_TIME
+        for dummy_t = 1 : mcs_unit
+            step = (mcs-1)*mcs_unit + dummy_t;
+            
+            rnd_x = x_vec(step);
+            rnd_y = y_vec(step);
+            c = sigma(rnd_y,rnd_x);
+            nb_indx = nb_vec(step);
+            
+            [nb_c, nb_x, nb_y, copy_x, copy_y, flag_update] = GetCandidateLattice(prm, sigma, rnd_x, rnd_y, nb_indx); % flag_update becomes'false' only when BND==1
+            
+            if flag_update && c ~= nb_c
+                
+                % Calculation of energy difference and transition probability
+                e_all = GetAdhesionEnergyDiff(prm, cells, sigma, rnd_x, rnd_y, c, nb_c)...
+                    + GetSizeEnergyDiff(prm, cells, c, nb_c) ...
+                    + GetCellSubstrateSurfaceDiff(prm, cells, c, nb_c, rnd_y, 1); % flag, 1: constant, 2: linear with the cell-substrate surface
+                
+                % Calculation of Transit Probability
+                if e_all >= 0
+                    prob = exp(-e_all/prm.TEMPERATURE);
+                elseif e_all < 0
+                    prob = 1.0;
+                end
+                
+                % Update of the state
+                if prob >= rnd_vec(step)
+                    
+                    sigma(rnd_y, rnd_x) = nb_c;
+                    cells = UpdateOfMass(prm, cells, rnd_x, rnd_y, c, nb_c); % Required "BEFORE" UpdateOfArea function
+                    cells = UpdateOfArea(cells, c, nb_c);
+                    
+                end
+                
+            end
+        end
+        
+        %% Loser cell specification
+        if mcs==100
+            cells.type(prm.looser)= 2; % loser cell is indexed as "2"
+            cells.subspread(prm.looser) = cells.subspread(1)*0.0;
+        end
+        
+        
+        %% Registration
+        if mod(mcs,10)==0
+            
+            
+            tmp_ext=sigma(:, 0.5*prm.XMAX-3:0.5*prm.XMAX+3);
+            center=round(cells.mass(prm.looser));
+            [y,x]=find(tmp_ext==prm.looser);
+            len=length(y);
+            for l=1:len
+                if sigma(y(l),x(l))==0
+            
+            
+            
+            %            extrusion_length = cells.mass(prm.looser,2) - 0.5*(cells.mass(prm.looser-1,2)+cells.mass(prm.looser+1,2));
+            extrusion_length = cells.(prm.looser-1,2) - 0.5*(cells.mass(prm.looser-1,2)+cells.mass(prm.looser+1,2));
+ 
+            mat_extrusion(output_cnt, 1:2) = [mcs extrusion_length*0.333];
+            output_cnt = output_cnt+1;
+        end
+        
+        %% Output Figure
+        %{
+        if mod(mcs,10)==0
+            disp(['mcs: ', num2str(mcs)])
+            OutputCellFigure(prm, cells, sigma, mcs)
+            filename = [dir_name, '/image', num2str(mcs), '.png'];
+            saveas(gcf, filename);
+        end
+        %}
+
+
+        
+        %% Vesicle shrinkage
+        cells = VesicleShrinkage(prm, cells);
+
+        %% Vesicle formation
+        %%{
+        if mod(mcs, prm.vesicle_add_rate)==0 && mcs>150
+            [sigma, cells] = VesicleFormation(prm, sigma, cells); % vesicles added one-by-one
+        end
+        %}
+
+
+        
+        
+    end
+    
+    %% Output
+    % Extrusion length
+    fname = [dir_name, '/extrusion.csv'];
+    writematrix(mat_extrusion, fname)
+    
+
+    %% Vesicle size
+    cells.vesicle_size(1)=[];
+    vlen1 = mean(sqrt(cells.vesicle_size*200/1800)); % diameter [µm], 1800pixels = 200µm^2
+    vlen2 = mean(2*sqrt(cells.vesicle_size*200/1800/pi)); % diameter [µm], 1800pixels = 200µm^2
+%    figure, histogram(sqrt(cells.vesicle_size*200/1800))
+%    figure, histogram(2*sqrt(cells.vesicle_size*200/1800/pi))
+
+    %
+    toc
+    
+end

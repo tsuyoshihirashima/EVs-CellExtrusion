@@ -1,0 +1,123 @@
+function [sigma, cells] = VesicleFormation(prm, sigma, cells)
+
+% 1- Listing up all the lattices of the looser cell
+[tmp_y, tmp_x] = find(sigma == prm.looser);
+len = length(tmp_y);
+
+% 2- Screening - listing up the lattices in the specific range
+mass_x = repmat(cells.mass(prm.looser,1), len, 1);
+mass_y = repmat(cells.mass(prm.looser,2), len, 1);
+angle = atan2(tmp_y-mass_y, tmp_x-mass_x);
+
+% ------------- PARAMETER specification ------------- %
+list=[];
+if prm.VesicleRegion == 0
+    % higher than basal region but lower than center of the extruding cell.
+    list = find(prm.vesicle_lower<tmp_y & tmp_y<cells.mass(prm.looser,2));
+elseif prm.VesicleRegion == 1 % case1: basal
+    list = find(-0.5*pi-0.5*prm.vesicle_theta <= angle & angle <= -0.5*pi+0.5*prm.vesicle_theta);
+elseif prm.VesicleRegion == 2 % case2: luminal/apical
+    list = find(0.5*pi-0.5*prm.vesicle_theta <= angle & angle <= 0.5*pi+0.5*prm.vesicle_theta);
+elseif prm.VesicleRegion == 3 % case3: lateral
+    list = find(abs(angle)<=0.25*prm.vesicle_theta | pi-0.25*prm.vesicle_theta<=abs(angle));
+end
+% ------------- ------------- %
+
+
+tmp_x = tmp_x(list);
+tmp_y = tmp_y(list);
+
+len2 = length(list);
+
+list_x=[]; list_y=[];
+cnt=1;
+for l = 1:len2
+    x = tmp_x(l);
+    y = tmp_y(l);
+    if 1<x && x<prm.XMAX && 1<y && prm.YMAX
+        
+        local_mat=sigma(y-1:y+1, x-1:x+1);
+        local_mat = unique(local_mat(:));
+        flag=0; % neighbor is either medium or winner
+        if sum(local_mat==0)>0
+            flag=1;
+        else
+            if sum(cells.type(local_mat)==1)>0
+                flag=1;
+            end
+        end
+        
+        if flag==1
+            list_x(cnt)=x;
+            list_y(cnt)=y;
+            cnt = cnt+1;
+        end
+    end
+end
+
+
+if ~isempty(list_x)
+    % position of seeds
+    
+    % 1: random
+    indx = randi(length(list_x));
+    x = list_x(indx);
+    y = list_y(indx);
+    
+    s = round(prm.X_CELL_LEN*0.1); % standard size of vesicles
+    repnumb = s-1; % repeat number of the following for loop
+    
+    sigma(y, x) = cells.numb + 1; % seed
+    for n = 1: repnumb
+        [y, x] = find(sigma==cells.numb+1);
+        for l = 1:length(x)
+            for i=-1:1
+                for j=-1:1
+                    xx = x(l)+i; yy = y(l)+j;
+                    if 1<=xx && xx<=prm.XMAX && 1<=yy && yy<=prm.YMAX
+                        if sigma(yy,xx)==prm.looser
+                            sigma(yy,xx) = cells.numb + 1;
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    % Type
+    cells.type(cells.numb+1) = 3; % vesicle
+    
+    % Area
+    vsize = numel(find(sigma==cells.numb+1));
+    cells.area(cells.numb+1) = vsize;
+    cells.target_area(cells.numb+1) = vsize;
+    
+    cells.area(prm.looser) = cells.area(prm.looser) - vsize;
+    cells.target_area(prm.looser) = cells.target_area(prm.looser) - 0.0*vsize; % loss of loser cell size due to vesicle formation
+    % -- Comments:
+    % -- discussed on 211109, but lose of looser cell volume is not reflected because this is not critical.
+    
+    
+    % Mass
+    [y, x] = find(sigma==cells.numb+1);
+    cells.mass(cells.numb+1, 1) = sum(x)/cells.area(cells.numb+1);
+    cells.mass(cells.numb+1, 2) = sum(y)/cells.area(cells.numb+1);
+    
+    [y, x] = find(sigma==prm.looser);
+    cells.mass(prm.looser, 1) = sum(x)/cells.area(prm.looser);
+    cells.mass(prm.looser, 2) = sum(y)/cells.area(prm.looser);
+    
+    % Intensity of cell spreading on the substrate
+    cells.subspread(cells.numb+1) = 0.0;
+    
+    % Update of cells.numb
+    cells.numb = cells.numb + 1;
+    
+    % Register the size of newly-added vesicle
+    len = length(cells.vesicle_size);
+    cells.vesicle_size(len+1) = vsize;
+
+end
+
+
+end
